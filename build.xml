@@ -1,0 +1,298 @@
+﻿<?xml version="1.0"?>
+<project name="JUTA" default="main" basedir=".">
+
+	<property name="dir.lib"			value="lib"							/>
+
+	<property name="dir.driver"			value="01 - driver"					/>
+	<property name="dir.tests"			value="02 - tests"					/>
+	<property name="dir.tasks"			value="03 - tasks"					/>
+	<property name="dir.registrations"	value="04 - registrations" 			/>
+	<property name="dir.heap"			value="05 - heap" 					/>
+	<property name="dir.uut"			value="06 - units under test" 		/>
+	<property name="dir.results"		value="07 - results"				/>
+	<property name="dir.compiled"		value="${dir.results}/compiled"		/>
+	<property name="dir.uncompilable"	value="${dir.results}/uncompilable"	/>
+	<property name="dir.unsolicited"	value="${dir.results}/unsolicited"	/>
+	<property name="dir.report"			value="${dir.results}/report"		/>
+	<property name="dir.temp"			value="temp"						/>
+	<property name="dir.sources"		value="${dir.temp}/sources"			/>
+	<property name="dir.classes"		value="${dir.temp}/classes"			/>	
+	<property name="dir.unzipped"		value="${dir.temp}/unzipped"		/>
+	
+	<property name="state.compiled"		value="compiled"					/>
+	<property name="state.uncompilable"	value="uncompilable"				/>
+	<property name="state.unsolicited"	value="unsolicited"					/>
+	
+	<property name="prefix.test"		value="Test"						/>
+	<property name="doc.log"			value="Log"							/>
+	<property name="doc.report"			value="Report"						/>
+	<property name="test.runner"		value="TestRunner"					/>
+	<property name="test.header"		value="RunHeader"					/>
+	
+
+	<!-- Definiert die Klassenpfade, die die junit.jar und die Klassen nach dem Übersetzen enthalten -->
+	<path id="class.path">
+		<pathelement location="${dir.lib}/junit-4.12.jar" />
+		<pathelement location="${dir.lib}/hamcrest-core-1.3.jar" />
+		<pathelement location="${dir.lib}/poi-3.13-20150929.jar" />
+		<pathelement location="${dir.classes}" />
+	</path>
+
+	<!-- Erweiterungen: for-each-Schleife, try-catch-Block -->
+	<taskdef resource="net/sf/antcontrib/antcontrib.properties">
+		<classpath>
+			<pathelement location="${dir.lib}/ant-contrib-1.0b3.jar" />
+		</classpath>
+	</taskdef>
+
+	<!-- säubert alle Verzeichnisse -->
+	<target name="clean.all" depends="clean">
+		<delete dir="${dir.results}" />
+	</target>
+
+	<!-- säubert das Verzeichnis -->
+	<target name="clean">
+		<!-- <delete dir="${dir.unzipped}" /> -->
+		<delete dir="${dir.temp}" />
+	</target>
+
+	<!-- legt die Ordnerstruktur an -->
+	<target name="makedir">
+		<mkdir dir="${dir.report}"			/>
+		<mkdir dir="${dir.compiled}"		/>
+		<mkdir dir="${dir.uncompilable}"	/>
+		<mkdir dir="${dir.unsolicited}"		/>
+		
+		<mkdir dir="${dir.classes}"			/>
+		<mkdir dir="${dir.sources}"			/>
+		<mkdir dir="${dir.unzipped}"		/>
+	</target>
+	
+	<target name="set.registrations">
+		<path id="files.registrations.path">
+			<fileset dir="${dir.registrations}" casesensitive="yes">
+			  <include name="**/*.xls"/>
+			</fileset>
+		</path>
+		<property name="files.registrations" refid="files.registrations.path"/>
+		<!-- 
+		<echo message="${files.registrations}"/>
+		-->
+	</target>
+
+	<!-- entpackt die zip-Files nach unzipped -->
+	<target name="unzip" depends="makedir">
+		<unzip dest="${dir.unzipped}" >
+			<fileset dir="${dir.uut}">
+				<include name="**/*.zip"/>
+			</fileset>
+		</unzip>
+	</target>
+	
+	<!-- kompiliert die Aufgaben-Dateien -->
+	<target name="compile.tasks">
+		<javac includeantruntime="false" srcdir="${dir.tasks}" destdir="${dir.classes}" >
+			<classpath refid="class.path" />
+		</javac>
+	</target>
+
+	<!-- kompiliert die Test-Dateien -->
+	<target name="compile.tests" depends="compile.tasks">
+		<javac includeantruntime="false" srcdir="${dir.tests}" destdir="${dir.classes}" >
+			<classpath refid="class.path" />
+		</javac>
+	</target>
+
+	<!-- kompiliert die Testumgebung -->
+	<target name="compile.drivers" depends="compile.tests">
+		<javac includeantruntime="false" srcdir="${dir.driver}" destdir="${dir.classes}" >
+			<classpath refid="class.path" />
+		</javac>
+	</target>
+
+	<!-- via forEach-Schleife werden die java-Dateien aus unzipped kompiliert, sortiert
+	 	 nach compiled und uncompilable und die kompilierbaren führen zusätzlich AuswertungTest*.java aus  -->
+	<target name="test.all" depends="set.registrations, unzip, compile.drivers">
+		<java classname= "${test.header}" append="true" output="${dir.report}/${doc.report}.csv">
+			<classpath refid="class.path" />
+		</java>
+		<foreach target="test.one" param="file.under.test" inheritall="true">
+			<path>
+				<fileset dir="${dir.unzipped}" casesensitive="yes">
+					<include name="**/*.java" />
+				</fileset>
+			</path>
+		</foreach>
+		<foreach target="move.remaining" param="file.under.test" inheritall="true">
+			<path>
+				<fileset dir="${dir.unzipped}" casesensitive="yes">
+					<include name="**/*" />
+				</fileset>
+			</path>
+		</foreach>
+	</target>
+	
+	<target name="move.remaining">
+		<local name="file.name"/>
+		<basename property="file.name" file="${file.under.test}" suffix=".java"/>
+		<echo message="Selected:		${file.name}" />
+		
+		<script language="javascript">
+			arr = project.getProperty('file.name').split('_');
+			project.setProperty('moodle.name', arr[0]);
+			project.setProperty('moodle.id', arr[1]);
+			project.setProperty('unit.under.test', arr[4]);
+		 </script>
+		<echo message="Unsolicited:		${unit.under.test}" />
+		<!-- TestRunnerParameters:
+			files.registrations, moodle.name, moodle.id, unit.under.test, STATE
+			optional: sourcePath
+		-->
+		<java classname= "${test.runner}" fork="true" append="true" output="${dir.report}/${doc.report}.csv">
+			<classpath refid="class.path" />
+			<arg value="${files.registrations}"/>
+			<arg value="${moodle.name}"/>
+			<arg value="${moodle.id}"/>
+			<arg value="${unit.under.test}"/>
+			<arg value="${state.unsolicited}"/>
+		</java>
+		<move file="${file.under.test}" todir="${dir.unsolicited}"/>
+	</target>
+	
+	<target name="test.one">
+		<delete>
+		    <fileset dir="${dir.sources}" includes="**/*"/>
+		</delete>
+		
+		<local name="file.name"/>
+		<basename property="file.name" file="${file.under.test}" suffix=".java"/>
+		<echo message="Selected:		${file.name}" />
+		
+		<script language="javascript">
+			arr = project.getProperty('file.name').split('_');
+			project.setProperty('moodle.name', arr[0]);
+			project.setProperty('moodle.id', arr[1]);
+			project.setProperty('unit.under.test', arr[4]);
+		 </script>
+		
+		
+		<antcall target="run.if.testclass.is.present"/>
+		<antcall target="note.if.testclass.is.not.present"/>		
+	</target>
+	
+	<target name="run.if.testclass.is.present" depends="check.for.testclass" if="${file.exists}">		
+		<!--
+		<echo>
+			$${files.registrations}	==> ${files.registrations}
+			$${moodle.name}		=> ${moodle.name}
+			$${moodle.name}		=> ${moodle.id}
+			$${unit.under.test}	=> ${unit.under.test}
+			${prefix.test}${unit.under.test}.java EXISTS 
+		</echo>
+		-->
+		
+		<copy file="${file.under.test}" tofile="${dir.sources}/${unit.under.test}.java" overwrite="yes" />
+		<local name="file.name"/>
+		<basename property="file.name" file="${file.under.test}"/>
+		<trycatch>
+			<try>
+				<record name="${dir.report}/${doc.log}${unit.under.test}.txt" append="yes" loglevel="warn" action="start"/>
+				<echo>==========================================================</echo>
+				<echo>Compiling ${file.name}</echo>
+				<javac includeantruntime="false" srcdir="${dir.sources}" destdir="${dir.classes}" >
+					<classpath refid="class.path" />
+				</javac>
+				<move file="${file.under.test}" todir="${dir.compiled}"/>
+				<echo>Succesfully compiled ${file.name}</echo>
+				<record name="${dir.report}/${doc.log}${unit.under.test}.txt" action="stop"/>
+				
+				<!-- TestRunnerParameters:
+					files.registrations, moodle.name, moodle.id, unit.under.test, STATE
+					optional: sourcePath
+				-->
+				<java classname= "${test.runner}" fork="true" append="true" output="${dir.report}/${doc.report}.csv">
+					<classpath refid="class.path" />
+					<arg value="${files.registrations}"/>
+					<arg value="${moodle.name}"/>
+					<arg value="${moodle.id}"/>
+					<arg value="${unit.under.test}"/>
+					<arg value="${state.compiled}"/>
+					<arg value="${dir.sources}"/>
+				</java>
+
+				<record name="${dir.report}/${doc.log}${unit.under.test}.txt" append="yes" loglevel="warn" action="start"/>
+				<echo>Succesfully ran ${file.name}" </echo>
+				<echo></echo>
+				<record name="${dir.report}/${doc.log}${unit.under.test}.txt" action="stop"/>
+			</try>
+			<catch>
+				<echo>Failed to compile and run ${file.name}</echo>
+				<echo> </echo>
+				<move file="${file.under.test}" todir="${dir.uncompilable}"/>
+				<!-- TestRunnerParameters:
+					files.registrations, moodle.name, moodle.id, unit.under.test, STATE
+					optional: sourcePath
+				-->
+				<java classname= "${test.runner}" fork="true" append="true" output="${dir.report}/${doc.report}.csv">
+					<classpath refid="class.path" />
+					<arg value="${files.registrations}"/>
+					<arg value="${moodle.name}"/>
+					<arg value="${moodle.id}"/>
+					<arg value="${unit.under.test}"/>
+					<arg value="${state.uncompilable}"/>
+				</java>
+			</catch>
+		</trycatch>
+
+						
+	</target>
+	
+	<target name="note.if.testclass.is.not.present" depends="check.for.testclass" unless="${file.exists}">
+		<!-- TestRunnerParameters:
+			files.registrations, moodle.name, moodle.i, unit.under.test, STATE
+			optional: sourcePath
+		-->
+		<!--
+		<echo>
+			$${files.registrations}	==> ${files.registrations}
+			$${moodle.name}		=> ${moodle.name}
+			$${moodle.name}		=> ${moodle.id}
+			$${unit.under.test}	=> ${unit.under.test}
+			${prefix.test}${unit.under.test}.java does NOT exist 
+		</echo>
+		-->
+		<echo message="Unsolicited:		${unit.under.test}" />
+		<!-- TestRunnerParameters:
+			files.registrations, moodle.name, moodle.id, unit.under.test, STATE
+			optional: sourcePath
+		-->
+		<java classname= "${test.runner}" fork="true" append="true" output="${dir.report}/${doc.report}.csv">
+			<classpath refid="class.path" />
+			<arg value="${files.registrations}"/>
+			<arg value="${moodle.name}"/>
+			<arg value="${moodle.id}"/>
+			<arg value="${unit.under.test}"/>
+			<arg value="${state.unsolicited}"/>
+		</java>
+		<move file="${file.under.test}" todir="${dir.unsolicited}"/>
+	</target>
+	
+		
+	<target name="check.for.testclass">
+		<available property="file.exists" file="${dir.tests}/${prefix.test}${unit.under.test}.java"/>
+	</target>
+		
+	<!-- säubert das Verzeichnis -->
+	<target name="run.all" depends="clean.all, test.all">
+		<delete dir="${dir.temp}" />
+	</target>
+
+	<!-- Ausführung zum Test -->
+	<target name="run.all.and.keep.temp" depends="clean.all, test.all" />
+
+
+	<target name="main" depends="run.all">
+		<description>Main target</description>
+	</target>
+
+</project>
